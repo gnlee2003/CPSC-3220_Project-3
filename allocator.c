@@ -2,21 +2,21 @@
 # include <stdlib.h>
 # include <sys/mman.h>
 # include <string.h>
-# include <math.h>
 # include <assert.h>
+# include <unistd.h>
+# include <stdio.h>
 
 #define PAGESIZE 4096
 #define SEGARRAYSIZE 10
 
 void *memAllocArray[SEGARRAYSIZE];
-int numMallocs = 0;
+int initialize = 0; //if 0 initialize the array
 
 typedef struct userMemHeader{
     size_t memSize;
     int freed; //1 - free 0 - in use
     struct pageHeader *headerPointer; //points to page Header
     struct userMemHeader *next; //points to next free block
-    struct userMemHeader *prev;
 } userMemHeader_t;
 
 typedef struct pageHeader{
@@ -28,29 +28,29 @@ typedef struct pageHeader{
 } pageHeader_t;
 
 void *addPage(int index){
+    index++;
     //Grab New Page
     void *newPage = mmap(NULL, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
     pageHeader_t *header = (pageHeader_t *)newPage;
     header -> freeList = NULL;
     header -> nextPage = NULL;
-    header -> nextFree = header + 1;
+    header -> nextFree = (char *)header + sizeof(pageHeader_t);
     header -> remainingSpots = (PAGESIZE - sizeof(pageHeader_t)) / (sizeof(userMemHeader_t) + (1 << index));
     
     //initialize the page
     userMemHeader_t *userMemHeader = NULL;
-    void *rover = header + 1;
+    void *rover = (char *)header + sizeof(pageHeader_t);
     int i = 0;
+
     while (i < header -> remainingSpots){
         userMemHeader = rover;
         userMemHeader -> memSize = (1 << index);
         userMemHeader -> freed = 0;
         userMemHeader -> headerPointer = header;
-        rover = rover + sizeof(userMemHeader_t) + (1 << index);
+        rover = (char *)rover + sizeof(userMemHeader_t) + (1 << index);
         if (i == header -> remainingSpots - 1) userMemHeader -> next = NULL;
         else userMemHeader -> next = rover;
-        if (i == 0) userMemHeader -> prev = NULL;
-        else userMemHeader -> prev = userMemHeader - (1 << index) - sizeof(userMemHeader_t);
         i++;
     }
     return newPage;
@@ -58,29 +58,30 @@ void *addPage(int index){
 
 void *malloc(size_t size){
     if (size == 0) return NULL;
+    int power = 1, index = 0;
 
     //Initialize memAllocArray
-    int i = 0;
-    if (numMallocs == 0){
-        while(i < SEGARRAYSIZE){
-            memAllocArray[i] = addPage(i);
-            i++;
+    if (initialize == 0){
+        while(index < SEGARRAYSIZE){
+            memAllocArray[index] = addPage(index);
+            index++;
         }
+        initialize++;
     }
 
     //Find the spot in memAllocList
-    i = 1;
-    while ((1 << i) < size && i <= SEGARRAYSIZE){
-        i++;
+    while ((1 << power) < size && power < SEGARRAYSIZE){
+        power++;
     }
 
     //Allocate
+    index = power - 1;
     //Find page with available mem
-    if (i <= SEGARRAYSIZE){
-        pageHeader_t *header = memAllocArray[i - 1];
-        while (header -> freeList == NULL || header -> remainingSpots == 0){
+    if (power < SEGARRAYSIZE){
+        pageHeader_t *header = memAllocArray[index];
+        while (header -> freeList == NULL && header -> remainingSpots == 0){
             if (header -> nextPage == NULL){
-                void *newPage = addPage(i - 1);
+                void *newPage = addPage(index);
                 header -> nextPage = newPage;
             }
             header = header -> nextPage;
@@ -95,26 +96,24 @@ void *malloc(size_t size){
         }else if (header -> remainingSpots != 0){
             userMemHeader = header -> nextFree;
             header -> nextFree = userMemHeader -> next;
+            header -> remainingSpots--;
         }
-        numMallocs++;
-        return userMemHeader + 1;
+        return (char *)userMemHeader + sizeof(userMemHeader_t);
     }else{
         size_t numPages = (size + PAGESIZE - 1) / PAGESIZE;
         void *newPage = mmap(NULL, (numPages * PAGESIZE) + sizeof(pageHeader_t) + sizeof(userMemHeader_t), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         pageHeader_t *header = (pageHeader_t *)newPage;
-        header->nextFree = header + 1;
+        header->nextFree = (char *)header + sizeof(pageHeader_t);
         header->nextPage = NULL;
         header->freeList = NULL;
         header->remainingSpots = 0;
         header->objSize = size;
 
-        userMemHeader_t *userMemHeader = (userMemHeader_t *)(header + 1);
-        userMemHeader -> memSize = (1 << i);
+        userMemHeader_t *userMemHeader = (userMemHeader_t *)(header + sizeof(pageHeader_t));
+        userMemHeader -> memSize = (1 << power);
         userMemHeader -> freed = 0;
         userMemHeader -> headerPointer = header;
         userMemHeader -> next = NULL;
-        userMemHeader -> prev = NULL;
-        numMallocs++;
         return header -> nextFree;
     }
     return NULL;
@@ -131,22 +130,23 @@ void *calloc(size_t nmemb, size_t size){
 }
 
 void *realloc(void *ptr, size_t size){
-    userMemHeader_t *oldHeader = ptr - sizeof(userMemHeader_t);
+    userMemHeader_t *oldHeader = (userMemHeader_t *)((char *)ptr - sizeof(userMemHeader_t));
     void *newLocation = malloc(size);
-    memcpy(newLocation, ptr, oldHeader -> memSize);
+    if (newLocation == NULL) return NULL;
+    size_t copySize = oldHeader->memSize < size ? oldHeader->memSize : size;
+    memcpy(newLocation, ptr, copySize);
 
     free(ptr);
     return newLocation;
 }
 
 void free(void *ptr){
-    userMemHeader_t *ptrHeader = ptr - sizeof(userMemHeader_t);
-    userMemHeader_t *rover = ptrHeader -> headerPointer -> freeList;
+    if (ptr == NULL) return;
+    
+    userMemHeader_t *ptrHeader = (userMemHeader_t *)((char *)ptr - sizeof(userMemHeader_t));
+    pageHeader_t *pageHeader = ptrHeader -> headerPointer;
 
-    while (rover -> next != NULL){
-        rover = rover -> next;
-    }
-
-    rover -> next = ptrHeader;
     ptrHeader -> freed = 1;
+    ptrHeader -> next = pageHeader -> freeList;
+    pageHeader -> freeList = ptrHeader;
 }
