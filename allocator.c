@@ -8,6 +8,7 @@
 
 #define PAGESIZE 4096
 #define SEGARRAYSIZE 10
+#define MAXARRAYSIZE 1024
 
 void *memAllocArray[SEGARRAYSIZE];
 int initialize = 0; //if 0 initialize the array
@@ -109,12 +110,12 @@ void *malloc(size_t size){
         header->remainingSpots = 0;
         header->objSize = size;
 
-        userMemHeader_t *userMemHeader = (userMemHeader_t *)(header + sizeof(pageHeader_t));
-        userMemHeader -> memSize = (1 << power);
+        userMemHeader_t *userMemHeader = (userMemHeader_t *)((char *)header + sizeof(pageHeader_t));
+        userMemHeader -> memSize = size;
         userMemHeader -> freed = 0;
         userMemHeader -> headerPointer = header;
         userMemHeader -> next = NULL;
-        return header -> nextFree;
+        return (void *)((char *)header + sizeof(pageHeader_t) + sizeof(userMemHeader_t));
     }
     return NULL;
 }
@@ -130,6 +131,12 @@ void *calloc(size_t nmemb, size_t size){
 }
 
 void *realloc(void *ptr, size_t size){
+    if (ptr == NULL) return malloc(size);
+    if (size == 0){
+        free(ptr);
+        return NULL;
+    }
+
     userMemHeader_t *oldHeader = (userMemHeader_t *)((char *)ptr - sizeof(userMemHeader_t));
     void *newLocation = malloc(size);
     if (newLocation == NULL) return NULL;
@@ -146,7 +153,11 @@ void free(void *ptr){
     userMemHeader_t *ptrHeader = (userMemHeader_t *)((char *)ptr - sizeof(userMemHeader_t));
     pageHeader_t *pageHeader = ptrHeader -> headerPointer;
 
-    ptrHeader -> freed = 1;
-    ptrHeader -> next = pageHeader -> freeList;
-    pageHeader -> freeList = ptrHeader;
+    if (pageHeader -> objSize > MAXARRAYSIZE){
+        munmap(pageHeader, pageHeader -> objSize + sizeof(pageHeader) + sizeof(userMemHeader_t));
+    }else{
+        ptrHeader -> freed = 1;
+        ptrHeader -> next = pageHeader -> freeList;
+        pageHeader -> freeList = ptrHeader;
+    }
 }
