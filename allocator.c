@@ -2,9 +2,9 @@
 # include <stdlib.h>
 # include <sys/mman.h>
 # include <string.h>
-# include <assert.h>
 # include <unistd.h>
 # include <stdio.h>
+# include <pthread.h>
 
 #define PAGESIZE 4096
 #define SEGARRAYSIZE 10
@@ -12,6 +12,7 @@
 
 void *memAllocArray[SEGARRAYSIZE];
 int initialize = 0; //if 0 initialize the array
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct userMemHeader{
     size_t memSize;
@@ -58,7 +59,12 @@ void *addPage(int index){
 }
 
 void *malloc(size_t size){
-    if (size == 0) return NULL;
+    pthread_mutex_lock(&lock);
+
+    if (size == 0){
+        pthread_mutex_unlock(&lock);
+        return NULL;
+    }
     int power = 1, index = 0;
 
     //Initialize memAllocArray
@@ -90,7 +96,6 @@ void *malloc(size_t size){
 
         //find the correct mem location
         userMemHeader_t *userMemHeader = NULL;
-        assert(header -> freeList != NULL || header -> remainingSpots != 0);
         if (header -> freeList != NULL){
             userMemHeader = header -> freeList;
             header -> freeList = userMemHeader -> next;
@@ -99,6 +104,7 @@ void *malloc(size_t size){
             header -> nextFree = userMemHeader -> next;
             header -> remainingSpots--;
         }
+        pthread_mutex_unlock(&lock);
         return (char *)userMemHeader + sizeof(userMemHeader_t);
     }else{
         size_t numPages = (size + PAGESIZE - 1) / PAGESIZE;
@@ -115,6 +121,7 @@ void *malloc(size_t size){
         userMemHeader -> freed = 0;
         userMemHeader -> headerPointer = header;
         userMemHeader -> next = NULL;
+        pthread_mutex_unlock(&lock);
         return (void *)((char *)header + sizeof(pageHeader_t) + sizeof(userMemHeader_t));
     }
     return NULL;
@@ -131,6 +138,7 @@ void *calloc(size_t nmemb, size_t size){
 }
 
 void *realloc(void *ptr, size_t size){
+
     if (ptr == NULL) return malloc(size);
     if (size == 0){
         free(ptr);
@@ -148,16 +156,22 @@ void *realloc(void *ptr, size_t size){
 }
 
 void free(void *ptr){
-    if (ptr == NULL) return;
+    pthread_mutex_lock(&lock);
+
+    if (ptr == NULL){
+        pthread_mutex_unlock(&lock);
+        return;
+    }
     
     userMemHeader_t *ptrHeader = (userMemHeader_t *)((char *)ptr - sizeof(userMemHeader_t));
     pageHeader_t *pageHeader = ptrHeader -> headerPointer;
 
     if (pageHeader -> objSize > MAXARRAYSIZE){
-        munmap(pageHeader, pageHeader -> objSize + sizeof(pageHeader) + sizeof(userMemHeader_t));
+        munmap(pageHeader, pageHeader -> objSize + sizeof(pageHeader_t) + sizeof(userMemHeader_t));
     }else{
         ptrHeader -> freed = 1;
         ptrHeader -> next = pageHeader -> freeList;
         pageHeader -> freeList = ptrHeader;
     }
+    pthread_mutex_unlock(&lock);
 }
