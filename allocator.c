@@ -166,8 +166,12 @@ void free(void *ptr){
     userMemHeader_t *ptrHeader = (userMemHeader_t *)((char *)ptr - sizeof(userMemHeader_t));
     pageHeader_t *pageHeader = ptrHeader -> headerPointer;
 
-    if (pageHeader -> objSize > MAXARRAYSIZE){
-        munmap(pageHeader, pageHeader -> objSize + sizeof(pageHeader_t) + sizeof(userMemHeader_t));
+    if (pageHeader->objSize > MAXARRAYSIZE){
+        size_t numPages = (pageHeader->objSize + PAGESIZE - 1) / PAGESIZE;
+
+        size_t totalSize = numPages * PAGESIZE + sizeof(pageHeader_t) + sizeof(userMemHeader_t);
+
+        munmap(pageHeader, totalSize);
     }else{
         ptrHeader -> freed = 1;
         ptrHeader -> next = pageHeader -> freeList;

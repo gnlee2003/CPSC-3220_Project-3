@@ -12,7 +12,7 @@ libmyalloc.so: allocator.c
 	$(CC) $(CFLAGS) $(PICFLAGS) allocator.c -o libmyalloc.so $(LDLIBS)
 
 test: mytest.c allocator.c
-	$(CC) $(CFLAGS) allocator.c test.c -o mytest
+	$(CC) $(CFLAGS) allocator.c stresstest.c -o mytest
 	LD_PRELOAD=./libmyalloc.so ./mytest
 
 clean:
