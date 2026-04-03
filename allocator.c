@@ -10,7 +10,6 @@
 #define SEGARRAYSIZE 10
 #define MAXARRAYSIZE 1024
 
-int large_path_count = 0;
 void *memAllocArray[SEGARRAYSIZE];
 int initialize = 0; //if 0 initialize the array
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -69,7 +68,6 @@ void *malloc(size_t size){
 
     //Initialize memAllocArray
     if (initialize == 0){
-        large_path_count = 0;
         while(index < SEGARRAYSIZE){
             memAllocArray[index] = addPage(index + 1);
             index++;
@@ -109,7 +107,6 @@ void *malloc(size_t size){
         pthread_mutex_unlock(&lock);
         return (char *)userMemHeader + sizeof(userMemHeader_t);
     }else{
-        large_path_count++;
         size_t numPages = (size + PAGESIZE - 1) / PAGESIZE;
         void *newPage = mmap(NULL, (numPages * PAGESIZE) + sizeof(pageHeader_t) + sizeof(userMemHeader_t), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         pageHeader_t *header = (pageHeader_t *)newPage;
