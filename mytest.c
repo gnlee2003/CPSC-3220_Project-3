@@ -6,7 +6,7 @@
 
 int main(){
     write(1, "Malloc\n", sizeof("Malloc\n"));
-    void *ptr = malloc(1023);
+    void *ptr = malloc(8);
     //printf("free\n");
     free(ptr);
 }
