@@ -1,0 +1,44 @@
+Name: Gavin Lee
+
+Description:
+allocator.c is a shim that is meant to intercept any calls to the malloc library.
+This is our own implemented memory managment library that is implemented
+using a segregated free list for any memory allocation from 1 - 1024 bytes. 
+For larger allocations they are managed through only mmap calls. Each page is given its own header and every block of memory that can be used by the user has its own header. 
+
+All pages are 4096 bytes. 
+
+The library is thread safe using the pthread lock
+
+DESIGN
+------
+addPage() - addPage is a helper function used to create and initialize a 
+            new page in the segregated free list. It takes an argument I called index. This index is the "index" of the segregated free 
+            list. The function uses mmap to get a new page. It then initializes the page header as well as each block of user memory's header.
+
+malloc() - malloc is a function that takes one argument of size. Size is a  
+           requested amount of memory in bytes. malloc is thread safe using pthread library MUTEX locks. malloc returns NULL if a size of 0 is passed. If size is less than or equal to 1024 bytes, than the requested block of memory goes into a segregated free list. This list allows for faster operations and less fragmentation. Anything larger than 1024 is not placed in the list and is considered a large allocation and mmap is called, the headers are still created and initialized.
+
+calloc() - calloc takes two arguments, the number of elements and the size
+           each element. Calloc sets the values of the memory called to 0. Calloc uses malloc(number of elements * size) to get the memory necessary and memset to set the values equal to 0. 
+
+realloc() - realloc takes two arguments, the first is the ptr of an already 
+           allocated block of memory, and the second is a size. Realloc changes the size of an already allocated block of memory to a different size. Realloc uses malloc(size) to get the new block of memory, memcpy to copy the values from the old memory to the new one, and free to delete the old memory, it then returns the pointer to the new memory location. 
+
+free() - free takes one argument, the ptr of an already allocated block of 
+           block of memory. Free then returns blocks of memory using munmap if it is a large allocation, or to the free list to be reused by malloc if it is in the segregated free list.
+
+KNOWN PROBLEMS
+--------------
+There are no known problems at this time. 
+
+COMPILING
+---------
+This memory allocator can be used by calling make to create the libmyalloc.so file to create the shim. 
+
+gcc/clang -Wall -g -fPIC -shared allocator.c -o libmyalloc.so -ldl
+
+Then can be used with this line
+
+gcc/clang allocator.c file.c -o file
+LD_PRELOAD=./libmyalloc.so ./mytest
